@@ -1,9 +1,6 @@
 import java.util.*;
 
 public class SMAStar {
-    static final int ROW = 5;
-    static final int COL = 5;
-    static final int MAX_NODES = 6; // memory limit
 
     static class Node {
         int row, col;
@@ -25,8 +22,9 @@ public class SMAStar {
             this.forgottenChildren = new HashMap<>();
         }
     }
-    static boolean isValid(int row, int col) {
-        return row >= 0 && row < ROW && col >= 0 && col < COL;
+
+    static boolean isValid(int row, int col, int rows, int cols) {
+        return row >= 0 && row < rows && col >= 0 && col < cols;
     }
 
     static boolean isUnBlocked(int[][] grid, int row, int col) {
@@ -40,6 +38,7 @@ public class SMAStar {
     static double calcH(int row, int col, int[] dest) {
         return Math.abs(row - dest[0]) + Math.abs(col - dest[1]);
     }
+
     static void tracePath(Node node) {
         List<int[]> path = new ArrayList<>();
         while (node != null) {
@@ -53,12 +52,13 @@ public class SMAStar {
         }
         System.out.println();
     }
-    static int[] nextSuccessor(Node node, int[][] grid, int[] dest) {
+
+    static int[] nextSuccessor(Node node, int[][] grid, int[] dest, int rows, int cols) {
         int[][] directions = {{-1,0},{1,0},{0,-1},{0,1}};
         for (int[] dir : directions) {
             int newRow = node.row + dir[0];
             int newCol = node.col + dir[1];
-            if (!isValid(newRow, newCol) || !isUnBlocked(grid, newRow, newCol))
+            if (!isValid(newRow, newCol, rows, cols) || !isUnBlocked(grid, newRow, newCol))
                 continue;
             int[] candidate = {newRow, newCol};
             boolean alreadyGenerated = false;
@@ -73,9 +73,13 @@ public class SMAStar {
                 return candidate;
             }
         }
-        return null; // all successors generated
+        return null;
     }
-    static void smaStar(int[][] grid, int[] src, int[] dest) {
+
+    static void smaStar(int[][] grid, int[] src, int[] dest, int maxNodes) {
+        int rows = grid.length;
+        int cols = grid[0].length;
+
         PriorityQueue<Node> queue = new PriorityQueue<>(
                 Comparator.comparingDouble((Node n) -> n.f)
                         .thenComparingInt(n -> -n.depth)
@@ -93,10 +97,9 @@ public class SMAStar {
                 return;
             }
 
-            int[] nextPos = nextSuccessor(current, grid, dest);
+            int[] nextPos = nextSuccessor(current, grid, dest, rows, cols);
 
             if (nextPos == null) {
-                // all successors generated, back up f to parent
                 queue.poll();
                 if (current.parent != null) {
                     current.parent.forgottenChildren.put(
@@ -115,7 +118,6 @@ public class SMAStar {
             double newH = calcH(nextPos[0], nextPos[1], dest);
             Node child;
 
-            // check if this was a forgotten child
             String key = nextPos[0] + "," + nextPos[1];
             if (current.forgottenChildren.containsKey(key)) {
                 double backedUpF = current.forgottenChildren.remove(key);
@@ -130,9 +132,7 @@ public class SMAStar {
                 return;
             }
 
-            // if memory full, drop worst node
-            if (queue.size() >= MAX_NODES) {
-                // find shallowest node with highest f
+            if (queue.size() >= maxNodes) {
                 Node worst = null;
                 for (Node n : queue) {
                     if (worst == null) { worst = n; continue; }
@@ -162,10 +162,35 @@ public class SMAStar {
                 {0, 0, 1, 0, 1},
                 {1, 1, 1, 1, 1}
         };
-
         int[] src  = {0, 0};
         int[] dest = {4, 4};
 
-        smaStar(grid, src, dest);
+        int[][] grid2 = {
+                {1, 1, 1, 1, 1, 1, 1, 1, 1},
+                {0, 0, 0, 0, 0, 0, 0, 0, 1},
+                {1, 1, 1, 1, 1, 1, 1, 0, 1},
+                {1, 0, 0, 0, 0, 0, 0, 0, 1},
+                {1, 1, 1, 1, 1, 1, 1, 0, 1},
+                {0, 0, 0, 0, 0, 0, 1, 0, 1},
+                {1, 1, 1, 1, 1, 0, 1, 0, 1},
+                {1, 0, 0, 0, 0, 0, 1, 0, 1},
+                {1, 1, 1, 1, 1, 1, 1, 1, 1}
+        };
+        int[] src2  = {0, 0};
+        int[] dest2 = {8, 8};
+
+        int[][] grid3 = {
+                {1, 1, 1, 1, 1},
+                {1, 0, 0, 0, 1},
+                {1, 0, 1, 0, 1},
+                {1, 0, 0, 0, 1},
+                {1, 1, 1, 1, 1}
+        };
+        int[] src3  = {0, 0};
+        int[] dest3 = {2, 2};
+
+        smaStar(grid,  src,  dest,  6);   // 5x5, tight memory
+        smaStar(grid2, src2, dest2, 10);  // 9x9, interesting but still tight
+        smaStar(grid3, src3, dest3, 6);   // blocked destination
     }
 }
