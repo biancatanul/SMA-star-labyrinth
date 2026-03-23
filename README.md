@@ -25,4 +25,5 @@ Finds the shortest path between a start cell and a destination cell in a grid-ba
 
 ## Authors
 Preduț Alexia
+
 Tanul Bianca-Elena
