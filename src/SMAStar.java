@@ -2,195 +2,327 @@ import java.util.*;
 
 public class SMAStar {
 
+    static final String RESET   = "\033[0m";
+    static final String BOLD    = "\033[1m";
+    static final String BG_WALL = "\033[48;5;236m";
+    static final String BG_OPEN = "\033[48;5;234m";
+    static final String BG_CUR  = "\033[48;5;39m";   //current
+    static final String BG_FRON = "\033[48;5;20m";   //frontier
+    static final String BG_VIS  = "\033[48;5;17m";   //visited
+    static final String BG_FORG = "\033[48;5;88m";   //forgotten
+    static final String BG_PATH = "\033[48;5;28m";   //path
+    static final String BG_SRC  = "\033[48;5;22m";   //start
+    static final String BG_DST  = "\033[48;5;130m";  //goal
+    static final String FG_W    = "\033[97m";         
+    static final String FG_DIM  = "\033[90m";         
+    static final String FG_CYAN = "\033[96m";
+    static final String FG_YEL  = "\033[93m";
+    static final String FG_GRN  = "\033[92m";
+    static final String FG_RED  = "\033[91m";
+    static final String FG_MAG  = "\033[95m";
+
+    //node
     static class Node {
-        int row, col;
-        double f, g, h;
+        int r, c;
+        double g, f;
         Node parent;
         int depth;
-        List<int[]> successors;
-        Map<String, Double> forgottenChildren;
+        List<int[]> successors = new ArrayList<>();
+        Map<String, Double> forgotten = new HashMap<>();
 
-        Node(int row, int col, double g, double h, Node parent) {
-            this.row = row;
-            this.col = col;
-            this.g = g;
-            this.h = h;
-            this.f = Math.max(parent != null ? parent.f : 0, g + h);
-            this.parent = parent;
+        Node(int r, int c, double g, Node parent, int[] dst) {
+            this.r = r; this.c = c; this.g = g; this.parent = parent;
             this.depth = parent != null ? parent.depth + 1 : 0;
-            this.successors = new ArrayList<>();
-            this.forgottenChildren = new HashMap<>();
+            double h = Math.abs(r - dst[0]) + Math.abs(c - dst[1]);
+            this.f = Math.max(parent != null ? parent.f : 0, g + h);
         }
     }
 
-    static boolean isValid(int row, int col, int rows, int cols) {
-        return row >= 0 && row < rows && col >= 0 && col < cols;
-    }
+    static String key(int r, int c) { return r + "," + c; }
 
-    static boolean isUnBlocked(int[][] grid, int row, int col) {
-        return grid[row][col] == 1;
-    }
-
-    static boolean isDestination(int row, int col, int[] dest) {
-        return row == dest[0] && col == dest[1];
-    }
-
-    static double calcH(int row, int col, int[] dest) {
-        return Math.abs(row - dest[0]) + Math.abs(col - dest[1]);
-    }
-
-    static void tracePath(Node node) {
-        List<int[]> path = new ArrayList<>();
-        while (node != null) {
-            path.add(new int[]{node.row, node.col});
-            node = node.parent;
-        }
-        Collections.reverse(path);
-        System.out.println("Path found:");
-        for (int[] p : path) {
-            System.out.print("(" + p[0] + "," + p[1] + ") ");
-        }
-        System.out.println();
-    }
-
-    static int[] nextSuccessor(Node node, int[][] grid, int[] dest, int rows, int cols) {
-        int[][] directions = {{-1,0},{1,0},{0,-1},{0,1}};
-        for (int[] dir : directions) {
-            int newRow = node.row + dir[0];
-            int newCol = node.col + dir[1];
-            if (!isValid(newRow, newCol, rows, cols) || !isUnBlocked(grid, newRow, newCol))
-                continue;
-            int[] candidate = {newRow, newCol};
-            boolean alreadyGenerated = false;
-            for (int[] s : node.successors) {
-                if (s[0] == candidate[0] && s[1] == candidate[1]) {
-                    alreadyGenerated = true;
-                    break;
-                }
-            }
-            if (!alreadyGenerated) {
-                node.successors.add(candidate);
-                return candidate;
-            }
+    static int[] nextSuccessor(Node node, int[][] grid) {
+        int[][] dirs = {{-1,0},{1,0},{0,-1},{0,1}};
+        int rows = grid.length, cols = grid[0].length;
+        for (int[] d : dirs) {
+            int nr = node.r + d[0], nc = node.c + d[1];
+            if (nr < 0 || nr >= rows || nc < 0 || nc >= cols || grid[nr][nc] == 0) continue;
+            int[] cand = {nr, nc};
+            boolean seen = node.successors.stream().anyMatch(s -> s[0]==cand[0] && s[1]==cand[1]);
+            if (!seen) { node.successors.add(cand); return cand; }
         }
         return null;
     }
 
-    static void smaStar(int[][] grid, int[] src, int[] dest, int maxNodes) {
+    //render grid in-place 
+    static int lastLines = 0;
+
+    static void render(int[][] grid, int[] src, int[] dst,
+                       String currentKey, Set<String> frontier,
+                       Set<String> visited, Set<String> forgotten,
+                       Set<String> path, Map<String,String> labels,
+                       String status, String logLine,
+                       int expanded, int generated, int pruned, int memUsed, int maxNodes) {
+
+        StringBuilder sb = new StringBuilder();
+
+        if (lastLines > 0) sb.append("\033[").append(lastLines).append("A\033[J");
+
+        int rows = grid.length, cols = grid[0].length;
+
+        // Header
+        sb.append(BOLD).append(FG_CYAN).append("  SMA* Pathfinder").append(RESET).append("\n");
+        sb.append(FG_DIM).append("  mem: ").append(memUsed).append("/").append(maxNodes)
+          .append("  expanded: ").append(expanded)
+          .append("  generated: ").append(generated)
+          .append("  pruned: ").append(pruned).append(RESET).append("\n");
+        sb.append("\n");
+
+        // Grid
+        for (int r = 0; r < rows; r++) {
+            sb.append("  ");
+            for (int c = 0; c < cols; c++) {
+                String k = key(r, c);
+                boolean isSrc  = r == src[0] && c == src[1];
+                boolean isDst  = r == dst[0] && c == dst[1];
+                boolean isWall = grid[r][c] == 0;
+                boolean isCur  = k.equals(currentKey);
+                boolean isFron = frontier.contains(k);
+                boolean isVis  = visited.contains(k);
+                boolean isForg = forgotten.contains(k);
+                boolean isPath = path.contains(k);
+
+                String label = labels.getOrDefault(k, null);
+
+                String bg, text;
+                if (isWall)       { bg = BG_WALL; text = "   "; }
+                else if (isSrc)   { bg = BG_SRC;  text = " S "; }
+                else if (isDst)   { bg = BG_DST;  text = " D "; }
+                else if (isPath)  { bg = BG_PATH; text = " ● "; }
+                else if (isCur)   { bg = BG_CUR;  text = label != null ? centerLabel(label) : " ◆ "; }
+                else if (isForg)  { bg = BG_FORG; text = label != null ? centerLabel(label) : " ✕ "; }
+                else if (isFron)  { bg = BG_FRON; text = label != null ? centerLabel(label) : " · "; }
+                else if (isVis)   { bg = BG_VIS;  text = " ✓ "; }
+                else              { bg = BG_OPEN; text = "   "; }
+
+                sb.append(bg).append(FG_W).append(BOLD).append(text).append(RESET);
+                if (c < cols - 1) sb.append(" ");
+            }
+            sb.append("\n");
+            if (r < rows - 1) sb.append("\n");
+        }
+
+        sb.append("\n");
+
+        // Legend
+        sb.append("  ")
+          .append(BG_CUR).append("   ").append(RESET).append(FG_DIM).append(" current  ").append(RESET)
+          .append(BG_FRON).append("   ").append(RESET).append(FG_DIM).append(" frontier  ").append(RESET)
+          .append(BG_VIS).append("   ").append(RESET).append(FG_DIM).append(" visited  ").append(RESET)
+          .append(BG_FORG).append("   ").append(RESET).append(FG_DIM).append(" forgotten  ").append(RESET)
+          .append(BG_PATH).append("   ").append(RESET).append(FG_DIM).append(" path").append(RESET)
+          .append("\n\n");
+
+        // Memory bar
+        int barWidth = 30;
+        int filled = maxNodes > 0 ? (int)((double)memUsed / maxNodes * barWidth) : 0;
+        filled = Math.min(filled, barWidth);
+        sb.append("  mem [");
+        for (int i = 0; i < barWidth; i++)
+            sb.append(i < filled ? (i > barWidth*0.75 ? FG_RED+"█"+RESET : FG_CYAN+"█"+RESET) : FG_DIM+"░"+RESET);
+        sb.append("] ").append(memUsed).append("/").append(maxNodes).append("\n\n");
+
+        // Status + log
+        String statusColor = status.startsWith("✓") ? FG_GRN : status.startsWith("✗") ? FG_RED : FG_YEL;
+        sb.append("  ").append(statusColor).append(BOLD).append(status).append(RESET).append("\n");
+        if (logLine != null && !logLine.isEmpty()) {
+            sb.append("  ").append(FG_DIM).append(logLine).append(RESET).append("\n");
+        }
+
+        String out = sb.toString();
+        System.out.print(out);
+
+        // Count lines printed so we can overwrite next frame
+        lastLines = (int) out.chars().filter(ch -> ch == '\n').count();
+    }
+
+    static String centerLabel(String s) {
+        if (s.length() >= 3) return s.substring(0, 3);
+        if (s.length() == 2) return " " + s;
+        return " " + s + " ";
+    }
+
+    //SMA* with live rendering 
+    static void smaStar(int[][] grid, int[] src, int[] dst, int maxNodes, int delayMs) throws InterruptedException {
         int rows = grid.length;
-        int cols = grid[0].length;
+        Set<String> frontier  = new LinkedHashSet<>();
+        Set<String> visited   = new LinkedHashSet<>();
+        Set<String> forgotten = new LinkedHashSet<>();
+        Set<String> path      = new LinkedHashSet<>();
+        Map<String,String> labels = new HashMap<>();
 
-        PriorityQueue<Node> queue = new PriorityQueue<>(
-                Comparator.comparingDouble((Node n) -> n.f)
-                        .thenComparingInt(n -> -n.depth)
-        );
+        PriorityQueue<Node> pq = new PriorityQueue<>(
+            Comparator.comparingDouble((Node n) -> n.f).thenComparingInt(n -> -n.depth));
 
-        double startH = calcH(src[0], src[1], dest);
-        Node root = new Node(src[0], src[1], 0, startH, null);
-        queue.add(root);
+        Node root = new Node(src[0], src[1], 0, null, dst);
+        pq.add(root);
+        frontier.add(key(src[0], src[1]));
 
-        while (!queue.isEmpty()) {
-            Node current = queue.peek();
+        int expanded = 0, generated = 1, pruned = 0;
 
-            if (isDestination(current.row, current.col, dest)) {
-                tracePath(current);
+        render(grid, src, dst, key(src[0],src[1]), frontier, visited, forgotten, path,
+               labels, "Starting...", "", expanded, generated, pruned, pq.size(), maxNodes);
+        Thread.sleep(delayMs);
+
+        int iter = 0;
+        while (!pq.isEmpty() && iter++ < 3000) {
+            Node current = pq.peek();
+            String curKey = key(current.r, current.c);
+            frontier.remove(curKey);
+
+            // Goal check
+            if (current.r == dst[0] && current.c == dst[1]) {
+                Node n = current; while (n != null) { path.add(key(n.r,n.c)); n = n.parent; }
+                render(grid, src, dst, "", new HashSet<>(), visited, forgotten, path,
+                       labels, "✓ Path found!  length=" + path.size() + "  f=" + fmt(current.f),
+                       "", expanded, generated, pruned, pq.size(), maxNodes);
                 return;
             }
 
-            int[] nextPos = nextSuccessor(current, grid, dest, rows, cols);
+            int[] next = nextSuccessor(current, grid);
 
-            if (nextPos == null) {
-                queue.poll();
+            if (next == null) {
+                pq.poll(); expanded++;
+                visited.add(curKey);
+                String logLine;
                 if (current.parent != null) {
-                    current.parent.forgottenChildren.put(
-                            current.row + "," + current.col, current.f);
-                    double minF = Double.MAX_VALUE;
-                    for (double val : current.parent.forgottenChildren.values())
-                        minF = Math.min(minF, val);
+                    String pk = key(current.parent.r, current.parent.c);
+                    current.parent.forgotten.put(curKey, current.f);
+                    forgotten.add(curKey);
+                    double minF = current.parent.forgotten.values().stream().mapToDouble(v->v).min().orElse(current.f);
                     current.parent.f = minF;
-                    if (!queue.contains(current.parent))
-                        queue.add(current.parent);
+                    if (!pq.contains(current.parent)) { pq.add(current.parent); frontier.add(pk); }
+                    logLine = "backed up (" + curKey + ") → parent (" + pk + ")  new f=" + fmt(minF);
+                    render(grid, src, dst, pk, frontier, visited, forgotten, path,
+                           labels, "↩ Backing up...", logLine, expanded, generated, pruned, pq.size(), maxNodes);
+                } else {
+                    logLine = "root exhausted";
+                    render(grid, src, dst, "", frontier, visited, forgotten, path,
+                           labels, "Root exhausted", logLine, expanded, generated, pruned, pq.size(), maxNodes);
                 }
+                Thread.sleep(delayMs);
                 continue;
             }
 
+            String childKey = key(next[0], next[1]);
             double newG = current.g + 1;
-            double newH = calcH(nextPos[0], nextPos[1], dest);
             Node child;
+            String logLine;
 
-            String key = nextPos[0] + "," + nextPos[1];
-            if (current.forgottenChildren.containsKey(key)) {
-                double backedUpF = current.forgottenChildren.remove(key);
-                child = new Node(nextPos[0], nextPos[1], newG, newH, current);
-                child.f = Math.max(backedUpF, child.f);
+            if (current.forgotten.containsKey(childKey)) {
+                double backed = current.forgotten.remove(childKey);
+                current.forgotten.remove(childKey);
+                forgotten.remove(childKey);
+                child = new Node(next[0], next[1], newG, current, dst);
+                child.f = Math.max(backed, child.f);
+                logLine = "restored forgotten child (" + childKey + ")  f=" + fmt(child.f);
             } else {
-                child = new Node(nextPos[0], nextPos[1], newG, newH, current);
+                child = new Node(next[0], next[1], newG, current, dst);
+                logLine = "expand → (" + childKey + ")  g=" + (int)child.g + "  h=" + fmt(child.f - child.g) + "  f=" + fmt(child.f);
             }
+            generated++;
+            labels.put(childKey, "f" + fmtShort(child.f));
 
-            if (isDestination(child.row, child.col, dest)) {
-                tracePath(child);
+            if (child.r == dst[0] && child.c == dst[1]) {
+                Node n = child; while (n != null) { path.add(key(n.r,n.c)); n = n.parent; }
+                render(grid, src, dst, "", new HashSet<>(), visited, forgotten, path,
+                       labels, "✓ Path found!  length=" + path.size() + "  f=" + fmt(child.f),
+                       logLine, expanded, generated, pruned, pq.size(), maxNodes);
                 return;
             }
 
-            if (queue.size() >= maxNodes) {
+            // Memory cap
+            if (pq.size() >= maxNodes) {
                 Node worst = null;
-                for (Node n : queue) {
+                for (Node n : pq) {
                     if (worst == null) { worst = n; continue; }
-                    if (n.f > worst.f || (n.f == worst.f && n.depth < worst.depth))
-                        worst = n;
+                    if (n.f > worst.f || (n.f == worst.f && n.depth < worst.depth)) worst = n;
                 }
                 if (worst != null && worst != current) {
-                    queue.remove(worst);
-                    if (worst.parent != null) {
-                        worst.parent.forgottenChildren.put(
-                                worst.row + "," + worst.col, worst.f);
-                    }
+                    pq.remove(worst);
+                    pruned++;
+                    String wk = key(worst.r, worst.c);
+                    frontier.remove(wk);
+                    forgotten.add(wk);
+                    if (worst.parent != null) worst.parent.forgotten.put(wk, worst.f);
+                    render(grid, src, dst, curKey, frontier, visited, forgotten, path,
+                           labels, "✂ Pruning (" + wk + ")  f=" + fmt(worst.f),
+                           "memory full — worst node removed", expanded, generated, pruned, pq.size(), maxNodes);
+                    Thread.sleep(delayMs);
                 }
             }
 
-            queue.add(child);
+            frontier.add(childKey);
+            pq.add(child);
+
+            render(grid, src, dst, curKey, frontier, visited, forgotten, path,
+                   labels, "→ Expanding...", logLine, expanded, generated, pruned, pq.size(), maxNodes);
+            Thread.sleep(delayMs);
         }
 
-        System.out.println("No solution found within memory limit.");
+        render(grid, src, dst, "", frontier, visited, forgotten, path,
+               labels, "✗ No path found within memory limit.", "", expanded, generated, pruned, pq.size(), maxNodes);
     }
 
-    public static void main(String[] args) {
-        int[][] grid = {
-                {1, 1, 1, 1, 1},
-                {1, 0, 0, 0, 1},
-                {1, 1, 1, 0, 1},
-                {0, 0, 1, 0, 1},
-                {1, 1, 1, 1, 1}
+    static String fmt(double v)      { return v == Math.floor(v) ? String.valueOf((int)v) : String.format("%.1f", v); }
+    static String fmtShort(double v) { return v == Math.floor(v) ? String.valueOf((int)v) : String.format("%.0f", v); }
+
+    //Main 
+    public static void main(String[] args) throws InterruptedException {
+        int delayMs = 300; // change this to go faster/slower
+
+        int[][] grid1 = {
+            {1,1,1,1,1},
+            {1,0,0,0,1},
+            {1,1,1,0,1},
+            {0,0,1,0,1},
+            {1,1,1,1,1}
         };
-        int[] src  = {0, 0};
-        int[] dest = {4, 4};
 
         int[][] grid2 = {
-                {1, 1, 1, 1, 1, 1, 1, 1, 1},
-                {0, 0, 0, 0, 0, 0, 0, 0, 1},
-                {1, 1, 1, 1, 1, 1, 1, 0, 1},
-                {1, 0, 0, 0, 0, 0, 0, 0, 1},
-                {1, 1, 1, 1, 1, 1, 1, 0, 1},
-                {0, 0, 0, 0, 0, 0, 1, 0, 1},
-                {1, 1, 1, 1, 1, 0, 1, 0, 1},
-                {1, 0, 0, 0, 0, 0, 1, 0, 1},
-                {1, 1, 1, 1, 1, 1, 1, 1, 1}
+            {1,1,1,1,1,1,1,1,1},
+            {0,0,0,0,0,0,0,0,1},
+            {1,1,1,1,1,1,1,0,1},
+            {1,0,0,0,0,0,0,0,1},
+            {1,1,1,1,1,1,1,0,1},
+            {0,0,0,0,0,0,1,0,1},
+            {1,1,1,1,1,0,1,0,1},
+            {1,0,0,0,0,0,1,0,1},
+            {1,1,1,1,1,1,1,1,1}
         };
-        int[] src2  = {0, 0};
-        int[] dest2 = {8, 8};
 
         int[][] grid3 = {
-                {1, 1, 1, 1, 1},
-                {1, 0, 0, 0, 1},
-                {1, 0, 1, 0, 1},
-                {1, 0, 0, 0, 1},
-                {1, 1, 1, 1, 1}
+            {1,1,1,1,1},
+            {1,0,0,0,1},
+            {1,0,1,0,1},
+            {1,0,0,0,1},
+            {1,1,1,1,1}
         };
-        int[] src3  = {0, 0};
-        int[] dest3 = {2, 2};
 
-        smaStar(grid,  src,  dest,  6);   // 5x5, tight memory
-        smaStar(grid2, src2, dest2, 10);  // 9x9, interesting but still tight
-        smaStar(grid3, src3, dest3, 6);   // blocked destination
+        System.out.println("\033[2J\033[H"); // clear screen
+
+        System.out.println("\033[96m\033[1m  ── Grid 1: 5×5  (memory=6) ──\033[0m\n");
+        smaStar(grid1, new int[]{0,0}, new int[]{4,4}, 6, delayMs);
+        Thread.sleep(1500);
+
+        lastLines = 0;
+        System.out.println("\n\033[96m\033[1m  ── Grid 2: 9×9  (memory=10) ──\033[0m\n");
+        smaStar(grid2, new int[]{0,0}, new int[]{8,8}, 10, delayMs);
+        Thread.sleep(1500);
+
+        lastLines = 0;
+        System.out.println("\n\033[96m\033[1m  ── Grid 3: 5×5 blocked dest  (memory=6) ──\033[0m\n");
+        smaStar(grid3, new int[]{0,0}, new int[]{2,2}, 6, delayMs);
+
+        System.out.println();
     }
 }
