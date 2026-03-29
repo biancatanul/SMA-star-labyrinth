@@ -4,11 +4,11 @@ public class SMAStar {
 
     static final String RESET   = "\033[0m";
     static final String BOLD    = "\033[1m";
-    static final String BG_WALL = "\033[48;5;236m";
-    static final String BG_OPEN = "\033[48;5;234m";
+    static final String BG_WALL = "\033[48;5;234m";
+    static final String BG_OPEN = "\033[48;5;255m";
     static final String BG_CUR  = "\033[48;5;39m";   //current
     static final String BG_FRON = "\033[48;5;20m";   //frontier
-    static final String BG_VIS  = "\033[48;5;17m";   //visited
+    static final String BG_VIS  = "\033[48;5;220m";   //visited
     static final String BG_FORG = "\033[48;5;88m";   //forgotten
     static final String BG_PATH = "\033[48;5;28m";   //path
     static final String BG_SRC  = "\033[48;5;22m";   //start
@@ -97,11 +97,11 @@ public class SMAStar {
                 if (isWall)       { bg = BG_WALL; text = "   "; }
                 else if (isSrc)   { bg = BG_SRC;  text = " S "; }
                 else if (isDst)   { bg = BG_DST;  text = " D "; }
-                else if (isPath)  { bg = BG_PATH; text = " ● "; }
-                else if (isCur)   { bg = BG_CUR;  text = label != null ? centerLabel(label) : " ◆ "; }
-                else if (isForg)  { bg = BG_FORG; text = label != null ? centerLabel(label) : " ✕ "; }
-                else if (isFron)  { bg = BG_FRON; text = label != null ? centerLabel(label) : " · "; }
-                else if (isVis)   { bg = BG_VIS;  text = " ✓ "; }
+                else if (isPath)  { bg = BG_PATH; text = " O "; }
+                else if (isCur)   { bg = BG_CUR;  text = label != null ? centerLabel(label) : " * "; }
+                else if (isForg)  { bg = BG_FORG; text = label != null ? centerLabel(label) : " X "; }
+                else if (isVis)   { bg = BG_VIS;  text = " V "; }
+                else if (isFron)  { bg = BG_FRON; text = label != null ? centerLabel(label) : " . "; }
                 else              { bg = BG_OPEN; text = "   "; }
 
                 sb.append(bg).append(FG_W).append(BOLD).append(text).append(RESET);
@@ -128,11 +128,11 @@ public class SMAStar {
         filled = Math.min(filled, barWidth);
         sb.append("  mem [");
         for (int i = 0; i < barWidth; i++)
-            sb.append(i < filled ? (i > barWidth*0.75 ? FG_RED+"█"+RESET : FG_CYAN+"█"+RESET) : FG_DIM+"░"+RESET);
+            sb.append(i < filled ? (memUsed >= maxNodes ? FG_RED+"#"+RESET : FG_CYAN+"#"+RESET) : FG_DIM+"-"+RESET);
         sb.append("] ").append(memUsed).append("/").append(maxNodes).append("\n\n");
 
         // Status + log
-        String statusColor = status.startsWith("✓") ? FG_GRN : status.startsWith("✗") ? FG_RED : FG_YEL;
+        String statusColor = status.startsWith("V") ? FG_GRN : status.startsWith("X") ? FG_RED : FG_YEL;
         sb.append("  ").append(statusColor).append(BOLD).append(status).append(RESET).append("\n");
         if (logLine != null && !logLine.isEmpty()) {
             sb.append("  ").append(FG_DIM).append(logLine).append(RESET).append("\n");
@@ -178,12 +178,13 @@ public class SMAStar {
             Node current = pq.peek();
             String curKey = key(current.r, current.c);
             frontier.remove(curKey);
+            labels.put(curKey, "f" + fmtShort(current.f));
 
             // Goal check
             if (current.r == dst[0] && current.c == dst[1]) {
                 Node n = current; while (n != null) { path.add(key(n.r,n.c)); n = n.parent; }
                 render(grid, src, dst, "", new HashSet<>(), visited, forgotten, path,
-                       labels, "✓ Path found!  length=" + path.size() + "  f=" + fmt(current.f),
+                       labels, "V Path found!  length=" + path.size() + "  f=" + fmt(current.f),
                        "", expanded, generated, pruned, pq.size(), maxNodes);
                 return;
             }
@@ -197,13 +198,12 @@ public class SMAStar {
                 if (current.parent != null) {
                     String pk = key(current.parent.r, current.parent.c);
                     current.parent.forgotten.put(curKey, current.f);
-                    forgotten.add(curKey);
                     double minF = current.parent.forgotten.values().stream().mapToDouble(v->v).min().orElse(current.f);
                     current.parent.f = minF;
-                    if (!pq.contains(current.parent)) { pq.add(current.parent); frontier.add(pk); }
-                    logLine = "backed up (" + curKey + ") → parent (" + pk + ")  new f=" + fmt(minF);
+                    if (!pq.contains(current.parent)) { pq.add(current.parent); frontier.add(pk); visited.remove(pk);}
+                    logLine = "backed up (" + curKey + ") -> parent (" + pk + ")  new f=" + fmt(minF);
                     render(grid, src, dst, pk, frontier, visited, forgotten, path,
-                           labels, "↩ Backing up...", logLine, expanded, generated, pruned, pq.size(), maxNodes);
+                           labels, "<- Backing up...", logLine, expanded, generated, pruned, pq.size(), maxNodes);
                 } else {
                     logLine = "root exhausted";
                     render(grid, src, dst, "", frontier, visited, forgotten, path,
@@ -227,7 +227,7 @@ public class SMAStar {
                 logLine = "restored forgotten child (" + childKey + ")  f=" + fmt(child.f);
             } else {
                 child = new Node(next[0], next[1], newG, current, dst);
-                logLine = "expand → (" + childKey + ")  g=" + (int)child.g + "  h=" + fmt(child.f - child.g) + "  f=" + fmt(child.f);
+                logLine = "expand -> (" + childKey + ")  g=" + (int)child.g + "  h=" + fmt(child.f - child.g) + "  f=" + fmt(child.f);
             }
             generated++;
             labels.put(childKey, "f" + fmtShort(child.f));
@@ -235,7 +235,7 @@ public class SMAStar {
             if (child.r == dst[0] && child.c == dst[1]) {
                 Node n = child; while (n != null) { path.add(key(n.r,n.c)); n = n.parent; }
                 render(grid, src, dst, "", new HashSet<>(), visited, forgotten, path,
-                       labels, "✓ Path found!  length=" + path.size() + "  f=" + fmt(child.f),
+                       labels, "V Path found!  length=" + path.size() + "  f=" + fmt(child.f),
                        logLine, expanded, generated, pruned, pq.size(), maxNodes);
                 return;
             }
@@ -255,8 +255,8 @@ public class SMAStar {
                     forgotten.add(wk);
                     if (worst.parent != null) worst.parent.forgotten.put(wk, worst.f);
                     render(grid, src, dst, curKey, frontier, visited, forgotten, path,
-                           labels, "✂ Pruning (" + wk + ")  f=" + fmt(worst.f),
-                           "memory full — worst node removed", expanded, generated, pruned, pq.size(), maxNodes);
+                           labels, "Pruning (" + wk + ")  f=" + fmt(worst.f),
+                           "memory full - worst node removed", expanded, generated, pruned, pq.size(), maxNodes);
                     Thread.sleep(delayMs);
                 }
             }
@@ -265,12 +265,12 @@ public class SMAStar {
             pq.add(child);
 
             render(grid, src, dst, curKey, frontier, visited, forgotten, path,
-                   labels, "→ Expanding...", logLine, expanded, generated, pruned, pq.size(), maxNodes);
+                   labels, "-> Expanding...", logLine, expanded, generated, pruned, pq.size(), maxNodes);
             Thread.sleep(delayMs);
         }
 
         render(grid, src, dst, "", frontier, visited, forgotten, path,
-               labels, "✗ No path found within memory limit.", "", expanded, generated, pruned, pq.size(), maxNodes);
+               labels, "X No path found within memory limit.", "", expanded, generated, pruned, pq.size(), maxNodes);
     }
 
     static String fmt(double v)      { return v == Math.floor(v) ? String.valueOf((int)v) : String.format("%.1f", v); }
@@ -278,7 +278,7 @@ public class SMAStar {
 
     //Main 
     public static void main(String[] args) throws InterruptedException {
-        int delayMs = 300; // change this to go faster/slower
+        int delayMs = 500; // delay between steps for visualization
 
         int[][] grid1 = {
             {1,1,1,1,1},
@@ -290,7 +290,7 @@ public class SMAStar {
 
         int[][] grid2 = {
             {1,1,1,1,1,1,1,1,1},
-            {0,0,0,0,0,0,0,0,1},
+            {0,1,0,0,0,0,0,0,1},
             {1,1,1,1,1,1,1,0,1},
             {1,0,0,0,0,0,0,0,1},
             {1,1,1,1,1,1,1,0,1},
@@ -310,18 +310,18 @@ public class SMAStar {
 
         System.out.println("\033[2J\033[H"); // clear screen
 
-        System.out.println("\033[96m\033[1m  ── Grid 1: 5×5  (memory=6) ──\033[0m\n");
-        smaStar(grid1, new int[]{0,0}, new int[]{4,4}, 6, delayMs);
+        System.out.println("\033[96m\033[1m --- Grid 1: 5x5  (memory=20) ---\033[0m\n");
+        smaStar(grid1, new int[]{0,0}, new int[]{4,4}, 20, delayMs);
         Thread.sleep(1500);
 
         lastLines = 0;
-        System.out.println("\n\033[96m\033[1m  ── Grid 2: 9×9  (memory=10) ──\033[0m\n");
-        smaStar(grid2, new int[]{0,0}, new int[]{8,8}, 10, delayMs);
+        System.out.println("\n\033[96m\033[1m --- Grid 2: 9x9  (memory=20) ---\033[0m\n");
+        smaStar(grid2, new int[]{0,0}, new int[]{8,8}, 20, delayMs);
         Thread.sleep(1500);
 
         lastLines = 0;
-        System.out.println("\n\033[96m\033[1m  ── Grid 3: 5×5 blocked dest  (memory=6) ──\033[0m\n");
-        smaStar(grid3, new int[]{0,0}, new int[]{2,2}, 6, delayMs);
+        System.out.println("\n\033[96m\033[1m --- Grid 3: 5x5 blocked dest  (memory=20) ---\033[0m\n");
+        smaStar(grid3, new int[]{0,0}, new int[]{2,2}, 20, delayMs);
 
         System.out.println();
     }
