@@ -19,9 +19,10 @@ Finds the shortest path between a start cell and a destination cell in a grid-ba
 - **Impossible grid**: destination surrounded by walls, demonstrates failure case
 
 ## How to run
-1. Clone the repository
-2. Open in IntelliJ IDEA
-3. Run `SMAStar.java`
+1. Make sure Java/JDK is installed
+2. Open a terminal in the ./src folder
+3. Run `javac SMAStar.java`
+4. Run `java SMAStar.java`
 
 ## Authors
 Preduț Alexia
